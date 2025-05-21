@@ -1,0 +1,448 @@
+---
+title: "Epigenome-Wide BRCA Analysis"
+author: "Wayne Monical"
+date: "2025-04-21"
+output: pdf_document
+---
+
+Installing
+```{r Installation, eval=FALSE, include=FALSE}
+install.packages('BiocManager')
+BiocManager::install("TCGAbiolinks")
+install.packages('devtools')
+BiocManager::install("IlluminaHumanMethylationEPICv2anno.20a1.hg38")
+devtools::install_github("ytwangZero/easyEWAS")
+```
+
+```{r libraries, message=FALSE, warning=FALSE}
+# data download
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(tidyverse)
+library(DT)
+
+# analysis
+library(CpGassoc)
+library(easyEWAS)
+library(glmnet)
+library(caret)
+library(pROC)
+```
+
+# Downloading Data
+```{r data_download, eval=FALSE}
+query_met <- GDCquery(
+    project = "TCGA-BRCA",
+    data.category = "DNA Methylation",
+    platform = c("Illumina Human Methylation 450")
+)
+
+# Get all patients that have DNA methylation 
+patients = substr(getResults(query_met, cols = "cases"), 1, 12)
+
+query_met <- GDCquery(
+    project = "TCGA-BRCA",
+    data.category = "DNA Methylation",
+    data.type = 'Methylation Beta Value',
+    platform = c("Illumina Human Methylation 450"),
+    barcode = patients
+)
+
+# download
+GDCdownload(query_met, files.per.chunk = 1)
+
+# combining data
+GDCprepare(query_met, save = TRUE, save.filename = "TCGA_BRCA_Methylation_4.1.RData")
+```
+
+# Data Processing
+
+```{r data_processing, eval=FALSE}
+# load downloaded data
+load('TCGA_BRCA_Methylation_4.1.RData')
+
+# Methylation beta values
+df = 
+  SummarizedExperiment::assays(data)[[1]] |> 
+  as.data.frame()
+
+# get a simple survey of which sites are not NA
+not_na = !is.na(df[['TCGA-C8-A27A-01A-11D-A16A-05']])
+
+small_df = 
+  df |> 
+  dplyr::filter(not_na)
+
+# Randomly pick 10,000 cpg sites
+N = 10000
+
+set.seed(123)
+
+site_sample = sample(rownames(small_df), size = N, replace = FALSE)
+
+
+# Subset to the sample
+smaller_df = small_df[site_sample,]
+
+
+# Saving beta values
+write.csv(smaller_df, 'TCGA_BRCA_Methylation_sample.csv', row.names = TRUE)
+
+# These are the subjects
+clinical = 
+  SummarizedExperiment::colData(data) |> 
+  as.data.frame()
+
+# save subject data
+clinical |> 
+  subset(select = -which(sapply(clinical, is.list))) |> 
+  write.csv(file = 'TCGA_BRCA_clinical_data.csv', row.names = TRUE)
+```
+
+
+
+# Analysis
+
+
+## Loading Data 
+
+```{r data_load}
+clinical = read.csv('../final_project_v4.1/TCGA_BRCA_clinical_data.csv', row.names = 1)
+methylation = read.csv('../final_project_v4.1/TCGA_BRCA_Methylation_sample.csv', row.names = 1)
+
+# Tissue type is the response variable
+tissue = clinical$tissue_type
+
+# need data in several forms
+methylation_no_na = 
+  methylation |> 
+  tidyr::drop_na() 
+
+methylation_wide = 
+  methylation |> 
+  t() |> 
+  as.data.frame()
+```
+
+
+## EDA
+
+```{r}
+# number samples
+nrow(clinical)
+```
+
+
+```{r}
+# number of cases and controls
+table(clinical$tissue_type)
+```
+
+
+```{r}
+# number of unique patients
+length(unique(clinical$patient))
+```
+
+## Data Quality 
+
+Look at the number of missing values
+```{r}
+hist(
+  apply(X = methylation, MARGIN = 1, FUN = function(x){sum(is.na(x))}),
+  xlab = 'Missing Values Per Row')
+```
+
+
+```{r}
+hist(
+  apply(X = methylation, MARGIN = 2, FUN = function(x){sum(is.na(x))}),
+  xlab = 'Missing Values Per Column')
+```
+
+
+Bimodal distribution
+```{r}
+methylation_no_na |> 
+  as.matrix() |> 
+  hist(main = 'Histogram of Methylation Beta Values', xlab = 'Beta Value')
+```
+
+
+There is similar mean methylation across case and control status.
+```{r}
+methylation_wide |> 
+  mutate(tissue = tissue) |> 
+  group_by(tissue) |> 
+  summarise(across(where(is.numeric), mean, na.rm = TRUE)) |> 
+  pivot_longer(cols = -tissue, names_to = 'CpG_Site', values_to = 'Mean') |> 
+  ggplot(aes(x = Mean, fill = tissue)) + 
+  geom_histogram() +
+  facet_grid(tissue ~ .) +
+  labs(title = "Means of CpG Sites by Tissue Type")
+```
+
+
+Histograms of site variances by tissue type
+```{r}
+methylation_wide |> 
+  mutate(tissue = tissue) |> 
+  group_by(tissue) |> 
+  summarise(across(where(is.numeric), var, na.rm = TRUE)) |> 
+  pivot_longer(cols = -tissue, names_to = 'CpG_Site', values_to = 'Variance') |> 
+  ggplot(aes(x = Variance, fill = tissue)) + 
+  geom_histogram() +
+  facet_grid(tissue ~ .) +
+  xlim(0, 0.1) +
+  ylim(0, 3000) +
+  labs(title = "Variance of CpG Sites by Tissue Type")
+```
+
+
+On the whole, the CpG sites are uncorrelated. 
+```{r}
+hist(
+  cor(as.matrix(t(methylation_no_na))),
+  main = 'Histogram of Correlation Between CpG Sites',
+  xlab = 'Correlation')
+```
+
+## Univariate Analysis
+
+Conducting association tests using the `CpGassoc` package. 
+```{r}
+methylation_univariate = 
+  cpg.assoc(
+    beta.val = methylation,
+    indep = factor(tissue), 
+    fdr.method = 'bonferroni')
+
+plot(methylation_univariate)
+```
+
+Conduct a permuation test for each site
+```{r}
+methylation_perm = 
+  cpg.perm(
+    beta.val = methylation,
+    indep = factor(tissue), 
+    fdr.method = 'bonferroni',
+    nperm = 10)
+
+plot(methylation_perm, gc.p.val = TRUE)
+```
+
+
+Adjust for multiple testing
+```{r}
+p_vals_univariate = methylation_univariate$results$gc.p.value
+p_vals_univariate_adj = p.adjust(p_vals_univariate, method="bonferroni")
+plot(-log(p_vals_univariate_adj))
+```
+
+How many sites are significant after correction?
+```{r}
+sum(p_vals_univariate_adj < 0.05)
+```
+
+Most significant sites
+```{r}
+significant_univariate = 
+  methylation_univariate$results |> 
+  arrange(P.value) |> 
+  dplyr::select(CPG.Labels, P.value, gc.p.value) |> 
+  mutate(bonferroni.p.value = gc.p.value * 10000) |> 
+  filter(bonferroni.p.value < 0.05)
+```
+
+
+## PCA Analysis
+
+```{r}
+methylation_pca = 
+  methylation_no_na |> 
+  as.matrix() |> 
+  t() |>
+  prcomp(retx=TRUE, center=TRUE, scale=TRUE)
+
+sd = methylation_pca$sdev
+
+loadings = methylation_pca$rotation
+
+scores = methylation_pca$x
+
+screeplot(methylation_pca, type="lines", main = 'Screeplot of Methylation PCA')
+```
+
+
+
+There is a visible difference between the normal and tumor data in the first PCA. Machine learning classifiers will likely score with high accuracy. 
+```{r}
+library(patchwork)
+p1 = scores |> 
+  as.data.frame() |> 
+  ggplot(aes(x = PC1, y = PC2, color = tissue)) + 
+    geom_point()+
+  labs(
+    title = 'First, Second, and Third Principle Components of Methylation',
+  )+ theme(legend.position = "none")
+
+p2 = scores |> 
+  as.data.frame() |> 
+  ggplot(aes(x = PC1, y = PC3, color = tissue)) + 
+    geom_point() + theme(legend.position = "none")
+
+p3 = scores |> 
+  as.data.frame() |> 
+  ggplot(aes(x = PC2, y = PC3, color = tissue)) + 
+    geom_point()
+
+p1 + p2 + p3
+```
+
+
+
+
+## Logistic Regression
+
+Training the logistic regression model
+```{r}
+# scale data
+methylation_ml = 
+  methylation_no_na |> 
+  t() |> 
+  scale()
+
+
+# test/train split
+set.seed(123)
+train_ind <- sample(seq_len(nrow(methylation_ml)), size =  round(0.7 * nrow(methylation_ml)))
+
+x_train = methylation_ml[train_ind, ]
+x_test = methylation_ml[-train_ind, ]
+y_train = tissue[train_ind]
+y_test = tissue[-train_ind]
+
+# set up cross validation control
+ctrl = 
+  trainControl(
+    method = "repeatedcv", repeats = 5,
+    summaryFunction = twoClassSummary,
+    classProbs = TRUE)
+
+
+# train elastic net model
+set.seed(1)
+methylation.elastic_net =
+  train(x = x_train,
+        y = y_train,
+        method = "glmnet", 
+        metric = 'ROC',
+        trControl = ctrl)
+
+# print the non-zero coefficients of the best model
+coeffs = 
+  coef(methylation.elastic_net$finalModel,
+     s = methylation.elastic_net$bestTune$lambda)
+
+# non zero coeffs 
+coeffs_non_zero = (row.names(coeffs)[coeffs[,'s1'] > 0])
+coeffs_non_zero = coeffs_non_zero[2:length(coeffs_non_zero)] # drop intercept
+```
+
+Get table of coefficients and their values
+```{r}
+coef_vals = 
+  data.frame(
+    coef_name = coeffs_non_zero,
+    coef_val = coeffs[coeffs[,'s1'] > 0][2:sum(coeffs[,'s1'] > 0)]
+  )
+
+coef_vals
+```
+
+
+Evaluate pairwise correlation between non-zero coefficients
+```{r}
+methylation_ml |> 
+  as.data.frame() |> 
+  select(coeffs_non_zero[1:4]) |> 
+  pairs()
+```
+
+
+Generate confusion matrix
+```{r}
+# make predictions with best model
+elastic.pred = predict(methylation.elastic_net, x_test)
+
+# creating the confusion matrix
+confusionMatrix(
+  data = elastic.pred,
+  reference = factor(y_test)
+)
+```
+
+Plot training
+```{r}
+plot(methylation.elastic_net)
+```
+
+Plot coefficients versus penalty
+```{r}
+plot(methylation.elastic_net$finalModel, main = 'Logistic Regression Coefficients vs Penalty')
+```
+
+
+Get the intersection between the logistic regression and the univariate analysis
+```{r}
+intersect(significant_univariate$CPG.Labels, coeffs_non_zero)
+```
+
+
+## EasyEWAS
+
+Conducting univariate analysis with easyEWAS
+```{r}
+methylation_rename = methylation
+colnames(methylation_rename) = str_replace_all(colnames(methylation), '\\.', '-')
+methylation_rename = tibble::rownames_to_column(methylation_rename, "probe")
+rownames(methylation_rename) = methylation_rename$probe
+```
+
+
+```{r}
+res <- initEWAS(outpath = "default")
+
+res <- loadEWAS(input = res,            
+                ExpoData =  clinical, 
+                MethyData = methylation_rename)  
+
+res <- startEWAS(input = res,
+                chipType = "450K", # "EPICV1", "450K", "27K", "MSA"
+                model = "lm",        # "lm", "lmer", "cox"
+                expo = "tissue_type",        # exposure variable
+                adjustP = TRUE,      # adjust p-values (FDR and Bonferroni)
+                core = 7            # set cores for parallel operations
+                )
+```
+
+
+View result
+```{r}
+res$result
+```
+
+Plotting
+```{r}
+res <- plotEWAS(input = res,
+                file = "pdf", # "jpg", "png", "tif", "pdf"
+                p = "PVAL",   # "PVAL", "FDR", "Bonfferoni"
+                threshold = 0.05)
+```
+
+
+```{r}
+plotEWAS(res)
+```
+
