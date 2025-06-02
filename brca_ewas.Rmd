@@ -6,7 +6,8 @@ output: github_document
 ---
 
 # Introduction
-In this project, I explore the relationship between CpG site methylation and status as a tumor or a normal-adjacent tissue from the TCGA-BRCA breast cancer data set1. In the data-set, there are 895 samples from 791 unique individuals. There are 798 tumor samples and 97 normal-adjacent samples. Normal-adjacent samples are taken from a cancerous patient from a non-tumorous region of their body. For analysis, I considered a matched control design, wherein normal-adjacent samples from each patient would serve as the control, but instead I opted for a non-matched case/control design for the increased power allowed by in the increased sample size of including the tumor samples without a matched control. 
+
+In this project, I explore the relationship between CpG site methylation and status as a tumor or a normal-adjacent tissue from the TCGA-BRCA breast cancer data set. In the data-set, there are 895 samples from 791 unique individuals. There are 798 tumor samples and 97 normal-adjacent samples. Normal-adjacent samples are taken from a cancerous patient from a non-tumorous region of their body. For analysis, I considered a matched control design, wherein normal-adjacent samples from each patient would serve as the control, but instead I opted for a non-matched case/control design for the increased power allowed by in the increased sample size of including the tumor samples without a matched control. 
 
 The data was sourced from the Illumina 450k Methylation assay, a technology that quantifies the methylation at approximately 450,000 CpG sites across the genome. The platform uses bisulfite sequencing to differentiate methylated and unmethylated regions2. DNA is sequenced before and after the application of bisulfites to the CpG site of interest. CpG sites that are unchanged by this process are likely to be methylated. If the cytosine in the CpG site is changed into thymine, then that site is likely un-methylated. Methylation protects the DNA strand. Two probes are then used to detect any change in the nucleotide. The number of cells in the sample with changed and unchanged nucleotides are counted. The beta value for the CpG site is calculated as the percentage of cells whose nucleotide was changed by the bisulfite process3. In this data-set, the beta values have been calculated. Due to computational constraints, I randomly selected a subset of 10,000 CpG sites across the genome.  
 
@@ -15,6 +16,9 @@ In this analysis, I will explore the relationship between CpG site methylation a
 My analysis found strong evidence of association between methylation and case/control status. The univariate analysis found twenty-four sites to be significant, and the logistic regression model found ten sites to be significant, three of which overlapped with the univariate analysis. 
 
 
+# Data Preparation
+
+Data was downloaded from the National Cancer Institute via the TCGABiolinks R package. 10,000 CpG sites across the epigenome were randomly selected for analysis. The sampled CpG sites are spread across the genome. The data is bimodal, as expected. At a high level, the differences between mean methylation of CpG sites between normal and tumor tissues are not immediately discernible. However, the tumorous tissue appears to have a higher overall variance than the normal tissue. The methylation of most CpG sites are uncorrelated. While adjacent CpG sites are often highly correlated, the 10,000 sites in this sample were randomly sampled from across the genome, and any two CpG sites in the analysis are not likely to be neighbors. 
 
 ```{r Installation, eval=FALSE, include=FALSE}
 install.packages('BiocManager')
@@ -24,7 +28,7 @@ BiocManager::install("IlluminaHumanMethylationEPICv2anno.20a1.hg38")
 devtools::install_github("ytwangZero/easyEWAS")
 ```
 
-```{r libraries, message=FALSE, warning=FALSE}
+```{r Libraries, message=FALSE, warning=FALSE}
 options(warn=-1)
 
 # data download
@@ -35,13 +39,13 @@ library(DT)
 
 # analysis
 library(CpGassoc)
-library(easyEWAS)
 library(glmnet)
 library(caret)
 library(pROC)
 ```
 
-# Downloading Data
+## Downloading Data
+
 ```{r data_download, eval=FALSE}
 query_met <- GDCquery(
     project = "TCGA-BRCA",
@@ -67,7 +71,7 @@ GDCdownload(query_met, files.per.chunk = 1)
 GDCprepare(query_met, save = TRUE, save.filename = "TCGA_BRCA_Methylation_4.1.RData")
 ```
 
-# Data Processing
+## Data Processing
 
 ```{r data_processing, eval=FALSE}
 # load downloaded data
@@ -111,18 +115,6 @@ clinical |>
   write.csv(file = 'TCGA_BRCA_clinical_data.csv', row.names = TRUE)
 ```
 
-
-
-# Analysis
-
-Methods
-Data Preparation
-Data was downloaded from the National Cancer Institute via the TCGABiolinks6,7,8 R package. 10,000 CpG sites across the epigenome were randomly selected for analysis. 
-
-The sampled CpG sites are spread across the genome. The data is bimodal, as expected. At a high level, the differences between mean methylation of CpG sites between normal and tumor tissues are not immediately discernible. However, the tumorous tissue appears to have a higher overall variance than the normal tissue. The methylation of most CpG sites are uncorrelated. While adjacent CpG sites are often highly correlated, the 10,000 sites in this sample were randomly sampled from across the genome, and any two CpG sites in the analysis are not likely to be neighbors. 
-
-
-
 ## Loading Data 
 
 ```{r data_load}
@@ -143,44 +135,26 @@ methylation_wide =
   as.data.frame()
 ```
 
+# Analysis
 
 ## EDA
 
+### Number of Samples
 ```{r}
-# number samples
 nrow(clinical)
 ```
 
-
+### Cases and Controls
 ```{r}
-# number of cases and controls
 table(clinical$tissue_type)
 ```
 
-
+### Number of Unique Patients
 ```{r}
-# number of unique patients
 length(unique(clinical$patient))
 ```
 
-## Data Quality 
-
-Look at the number of missing values
-```{r}
-hist(
-  apply(X = methylation, MARGIN = 1, FUN = function(x){sum(is.na(x))}),
-  xlab = 'Missing Values Per Row')
-```
-
-
-```{r}
-hist(
-  apply(X = methylation, MARGIN = 2, FUN = function(x){sum(is.na(x))}),
-  xlab = 'Missing Values Per Column')
-```
-
-
-Bimodal distribution
+### Bimodal distribution
 ```{r}
 methylation_no_na |> 
   as.matrix() |> 
@@ -202,7 +176,7 @@ methylation_wide |>
 ```
 
 
-Histograms of site variances by tissue type
+### Histograms of Site Variances by Tissue Type
 ```{r}
 methylation_wide |> 
   mutate(tissue = tissue) |> 
@@ -218,7 +192,7 @@ methylation_wide |>
 ```
 
 
-On the whole, the CpG sites are uncorrelated. 
+### CpG Site Correlation
 ```{r}
 hist(
   cor(as.matrix(t(methylation_no_na))),
@@ -230,13 +204,9 @@ hist(
 
 ## Univariate Analysis
 
-In the univariate analysis, each CpG site was tested independently. I conducted a two-sided t-test for association with methylation using the easyEWAS9 and CpGassoc10 R packages. Since the p-values of the tests were consistently inflated, I used genomic control. Due to the multiple tests performed, I used the stringent family-wise error rate correction, multiplying the p-value of each t-test by the number of tests performed (10,000). 
+In the univariate analysis, each CpG site was tested independently. I conducted a two-sided t-test for association with methylation using the CpGassoc R package. Since the p-values of the tests were consistently inflated, I used genomic control. Due to the multiple tests performed, I used the stringent family-wise error rate correction, multiplying the p-value of each t-test by the number of tests performed (10,000). A total of 3,821 sites were found to be significantly associated with case/control status after genomic control. After Bonferroni correction, twenty-four sites were found to be significant at the 5% level. The five most significant CpG sites are given below. 
 
-I conducted a univariate analysis of the association between the methylation of each CpG site and case/control status of the sampled tissue. A total of 3,821 sites were found to be significantly associated with case/control status after genomic control. As can be seen below, the test statistics of the epigenome were consistently inflated over expectations. After Bonferroni correction, twenty-four sites were found to be significant at the 5% level. The five most significant CpG sites are given below. 
-
-
-
-Conducting association tests using the `CpGassoc` package. 
+### Association Tests
 ```{r}
 methylation_univariate = 
   cpg.assoc(
@@ -247,7 +217,7 @@ methylation_univariate =
 plot(methylation_univariate)
 ```
 
-Conduct a permuation test for each site
+### Permutation Tests
 ```{r}
 methylation_perm = 
   cpg.perm(
@@ -260,26 +230,30 @@ plot(methylation_perm, gc.p.val = TRUE)
 ```
 
 
-Adjust for multiple testing
+### Adjustment for Multiple Testing
 ```{r}
 p_vals_univariate = methylation_univariate$results$gc.p.value
 p_vals_univariate_adj = p.adjust(p_vals_univariate, method="bonferroni")
 plot(-log(p_vals_univariate_adj))
 ```
 
-How many sites are significant after correction?
+### Number of Significant Sites after Adjustment
 ```{r}
 sum(p_vals_univariate_adj < 0.05)
 ```
 
-Most significant sites
+### Most Significant Sites
 ```{r}
 significant_univariate = 
   methylation_univariate$results |> 
   arrange(P.value) |> 
   dplyr::select(CPG.Labels, P.value, gc.p.value) |> 
   mutate(bonferroni.p.value = gc.p.value * 10000) |> 
-  filter(bonferroni.p.value < 0.05)
+  filter(bonferroni.p.value < 0.05) 
+
+significant_univariate %>% 
+  head(5) %>% 
+  knitr::kable()
 ```
 
 
@@ -287,9 +261,7 @@ significant_univariate =
 
 In order to reduce the dimensionality of the CpG site data for visualization and further analysis, I conducted principle component analysis on the data, representing the data along its principle components, the linear directions of largest variation. I visualized the data along its first three principle components using the R package ggplot211.  
 
-I conducted principle component analysis to better understand the distribution of the data. The data was scaled, then transformed into a new set of coordinates along its principle components. The screeplot is given below. After the first six principle components, the explanatory power of each additional principle component is minimal. The first three principle components are plotted pairwise below. The normal-adjacent tissue, shown in red, is concentrated in distinct regions in each plot. Using the entirety of the information in the methylation values, it is likely possible to train a machine learning model to classify the tissue samples from the methylation values with high accuracy. 
-
-
+I conducted principle component analysis to better understand the distribution of the data. The data was scaled, then transformed into a new set of coordinates along its principle components. The screeplot is given below. After the first six principle components, the explanatory power of each additional principle component is minimal. The first three principle components are plotted pairwise below. There is a visible difference between the normal and tumor data in the first PCA. The normal-adjacent tissue, shown in red, is concentrated in distinct regions in each plot. Using the entirety of the information in the methylation values, it is likely possible to train a machine learning model to classify the tissue samples from the methylation values with high accuracy. 
 
 ```{r}
 methylation_pca = 
@@ -307,9 +279,7 @@ scores = methylation_pca$x
 screeplot(methylation_pca, type="lines", main = 'Screeplot of Methylation PCA')
 ```
 
-
-
-There is a visible difference between the normal and tumor data in the first PCA. Machine learning classifiers will likely score with high accuracy. 
+### Plotting PC's
 ```{r}
 library(patchwork)
 p1 = scores |> 
@@ -334,8 +304,6 @@ p1 + p2 + p3
 ```
 
 
-
-
 ## Logistic Regression
 
 In order to find the strongest CpG site predictors, I trained a penalized logistic regression model on the methylation data with the goal of predicting case/control status. The data was scaled with the goal of applying the penalty to each coefficient uniformly. The model was trained with an elastic net penalty and its hyperparameters were tuned via five-fold cross-validation, optimized for ROC. 
@@ -344,8 +312,7 @@ The plot of the logistic regression’s penalty term versus its coefficient valu
 
 The confusion matrix and performance measures of the model on a reserved test set are given below. The model achieved a balanced accuracy of 95%, based solely on the coefficients listed. This metric, along with the calculated p-value of 2.448e-9 indicates a strong relationship between this set of CpG sites and case/control status.
 
-
-Training the logistic regression model
+### Model Training
 ```{r}
 # scale data
 methylation_ml = 
@@ -390,7 +357,7 @@ coeffs_non_zero = (row.names(coeffs)[coeffs[,'s1'] > 0])
 coeffs_non_zero = coeffs_non_zero[2:length(coeffs_non_zero)] # drop intercept
 ```
 
-Get table of coefficients and their values
+### Coefficients
 ```{r}
 coef_vals = 
   data.frame(
@@ -402,7 +369,7 @@ coef_vals
 ```
 
 
-Evaluate pairwise correlation between non-zero coefficients
+### Evaluateing Pairwise Correlation Between Non-zero Coefficients
 ```{r}
 methylation_ml |> 
   as.data.frame() |> 
@@ -411,7 +378,7 @@ methylation_ml |>
 ```
 
 
-Generate confusion matrix
+### Confusion Matrix
 ```{r}
 # make predictions with best model
 elastic.pred = predict(methylation.elastic_net, x_test)
@@ -423,86 +390,40 @@ confusionMatrix(
 )
 ```
 
-Plot training
+### Model Training
 ```{r}
 plot(methylation.elastic_net)
 ```
 
-Plot coefficients versus penalty
+
+### Coefficients Versus Penalty
 ```{r}
 plot(methylation.elastic_net$finalModel, main = 'Logistic Regression Coefficients vs Penalty')
 ```
 
 
-Get the intersection between the logistic regression and the univariate analysis
+### Intersection of Model and Univariate Analysis
 ```{r}
 intersect(significant_univariate$CPG.Labels, coeffs_non_zero)
-```
-
-
-## EasyEWAS
-
-Conducting univariate analysis with easyEWAS
-```{r}
-methylation_rename = methylation
-colnames(methylation_rename) = str_replace_all(colnames(methylation), '\\.', '-')
-methylation_rename = tibble::rownames_to_column(methylation_rename, "probe")
-rownames(methylation_rename) = methylation_rename$probe
-```
-
-
-```{r}
-res <- initEWAS(outpath = "default")
-
-res <- loadEWAS(input = res,            
-                ExpoData =  clinical, 
-                MethyData = methylation_rename)  
-
-res <- startEWAS(input = res,
-                chipType = "450K", # "EPICV1", "450K", "27K", "MSA"
-                model = "lm",        # "lm", "lmer", "cox"
-                expo = "tissue_type",        # exposure variable
-                adjustP = TRUE,      # adjust p-values (FDR and Bonferroni)
-                core = 7            # set cores for parallel operations
-                )
-```
-
-
-View result
-```{r}
-res$result
-```
-
-Plotting
-```{r}
-res <- plotEWAS(input = res,
-                file = "pdf", # "jpg", "png", "tif", "pdf"
-                p = "PVAL",   # "PVAL", "FDR", "Bonfferoni"
-                threshold = 0.05)
-```
-
-
-```{r}
-plotEWAS(res)
 ```
 
 
 # Conclusion
 The univariate analysis confirmed the association between the methylation values and case/control status. The clustering of the methylation values in the PCA has a clear biological interpretation. While the differences between the methylation values of the normal and cancerous tissue was not visible in the distribution of methylation means, it was shown by reducing the data to its first three PCAs. The logistic regression model was trained with the goal of prediction, providing estimates of the strength of the relationship via the coefficient values. However, its p-value was smaller than the most significant univariate analysis, and does not require the same multiple comparisons adjustment, since the model features are chosen automatically as part of model training. The logistic regression also served as a validation of the univariate analysis, confirming three of its most significant findings, namely CpG sites cg16751493, cg07141215, and cg12277416. These three sites represent the strongest signals in the analysis; they are significant in their own right, and they are significant after controlling for all other signals. 
 
-For further study into the relationship between methylation and BRCA cancer tissue, I would delve deeper into sites cg16751493, cg07141215, and cg12277416, employ additional statistical techniques, and incorporate additional data. I would evaluate the surrounding regions of the significant CpG sites, potentially discovering more significant sites. I would evaluate the interaction between CpG sites for association with case/control status. Since cancerous tissue is known to have varied methylation values4, I would incorporate each site's methylation variability as a feature for testing and model-building. I would conduct bump hunting and other techniques for the discovery of differentially methylated regions5. For biological data, I would incorporate genetic data, gene expression data, and clinical data, such as age, treatment regimen, and lifestyle in order to create a full picture of the relationship between methylation and tissue type and account for confounding variables. 
+For further study into the relationship between methylation and BRCA cancer tissue, I would delve deeper into sites cg16751493, cg07141215, and cg12277416, employ additional statistical techniques, and incorporate additional data. I would evaluate the surrounding regions of the significant CpG sites, potentially discovering more significant sites. I would evaluate the interaction between CpG sites for association with case/control status. Since cancerous tissue is known to have varied methylation values4, I would incorporate each site's methylation variability as a feature for testing and model-building. I would conduct bump hunting and other techniques for the discovery of differentially methylated regions. For biological data, I would incorporate genetic data, gene expression data, and clinical data, such as age, treatment regimen, and lifestyle in order to create a full picture of the relationship between methylation and tissue type and account for confounding variables. 
 
 References
-Lingle, W., Erickson, B. J., Zuley, M. L., Jarosz, R., Bonaccio, E., Filippini, J., Net, J. M., Levi, L., Morris, E. A., Figler, G. G., Elnajjar, P., Kirk, S., Lee, Y., Giger, M., & Gruszauskas, N. (2016). The Cancer Genome Atlas Breast Invasive Carcinoma Collection (TCGA-BRCA). The Cancer Imaging Archive. https://doi.org/10.7937/K9/TCIA.2016.AB2NAZRP
-“Introduction to DNA Methylation Analysis¶.” Introduction to DNA Methylation Analysis - Methylprep 1.6.5 Documentation, life-epigenetics-methylprep.readthedocs-hosted.com/en/latest/docs/introduction/introduction.html. Accessed 2 May 2025. 
-Du, Pan, et al. “Comparison of beta-value and m-value methods for quantifying methylation levels by microarray analysis.” BMC Bioinformatics, vol. 11, no. 1, 30 Nov. 2010, https://doi.org/10.1186/1471-2105-11-587. 
-Jaffe, Andrew E, et al. “Bump hunting to identify differentially methylated regions in epigenetic epidemiology studies.” International Journal of Epidemiology, vol. 41, no. 1, Feb. 2012, pp. 200–209, https://doi.org/10.1093/ije/dyr238. 
-Wang, Ya, et al. “Accounting for differential variability in detecting differentially methylated regions.” Briefings in Bioinformatics, vol. 20, no. 1, 18 Aug. 2017, pp. 47–57, https://doi.org/10.1093/bib/bbx097.
-Colaprico A, Silva TC, Olsen C, Garofano L, Cava C, Garolini D, Sabedot T, Malta TM, Pagnotta SM, Castiglioni I, Ceccarelli M, Bontempi G, Noushmehr H (2015). “TCGAbiolinks: An R/Bioconductor package for integrative analysis of TCGA data.” Nucleic Acids Research. doi:10.1093/nar/gkv1507, http://doi.org/10.1093/nar/gkv1507.
-Silva, C T, Colaprico, Antonio, Olsen, Catharina, D'Angelo, Fulvio, Bontempi, Gianluca, Ceccarelli, Michele, Noushmehr, Houtan (2016). “TCGA Workflow: Analyze cancer genomics and epigenomics data using Bioconductor packages.” F1000Research, 5.
-Mounir, Mohamed, Lucchetta, Marta, Silva, C T, Olsen, Catharina, Bontempi, Gianluca, Chen, Xi, Noushmehr, Houtan, Colaprico, Antonio, Papaleo, Elena (2019). “New functionalities in the TCGAbiolinks package for the study and integration of cancer data from GDC and GTEx.” PLoS computational biology, 15(3), e1006701.
-Wang, Yuting, Meijie Jiang, et al. EasyEWAS: A Flexible and User-Friendly R Package for Epigenome-Wide Association Study, 14 Jan. 2025, https://doi.org/10.1101/2025.01.09.632273. 
-Barfield RT, Kilaru V, Smith AK, Conneely KN. CpGassoc: an R function for analysis of DNA methylation microarray data. Bioinformatics. 2012 May 1;28(9):1280-1. doi: 10.1093/bioinformatics/bts124. Epub 2012 Mar 25. PMID: 22451269; PMCID: PMC3577110.
-Wickham H (2016). ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York. ISBN 978-3-319-24277-4, https://ggplot2.tidyverse.org.
+1. Lingle, W., Erickson, B. J., Zuley, M. L., Jarosz, R., Bonaccio, E., Filippini, J., Net, J. M., Levi, L., Morris, E. A., Figler, G. G., Elnajjar, P., Kirk, S., Lee, Y., Giger, M., & Gruszauskas, N. (2016). The Cancer Genome Atlas Breast Invasive Carcinoma Collection (TCGA-BRCA). The Cancer Imaging Archive. https://doi.org/10.7937/K9/TCIA.2016.AB2NAZRP
+2. “Introduction to DNA Methylation Analysis¶.” Introduction to DNA Methylation Analysis - Methylprep 1.6.5 Documentation, life-epigenetics-methylprep.readthedocs-hosted.com/en/latest/docs/introduction/introduction.html. Accessed 2 May 2025. 
+3. Du, Pan, et al. “Comparison of beta-value and m-value methods for quantifying methylation levels by microarray analysis.” BMC Bioinformatics, vol. 11, no. 1, 30 Nov. 2010, https://doi.org/10.1186/1471-2105-11-587. 
+4. Jaffe, Andrew E, et al. “Bump hunting to identify differentially methylated regions in epigenetic epidemiology studies.” International Journal of Epidemiology, vol. 41, no. 1, Feb. 2012, pp. 200–209, https://doi.org/10.1093/ije/dyr238. 
+5. Wang, Ya, et al. “Accounting for differential variability in detecting differentially methylated regions.” Briefings in Bioinformatics, vol. 20, no. 1, 18 Aug. 2017, pp. 47–57, https://doi.org/10.1093/bib/bbx097.
+6. Colaprico A, Silva TC, Olsen C, Garofano L, Cava C, Garolini D, Sabedot T, Malta TM, Pagnotta SM, Castiglioni I, Ceccarelli M, Bontempi G, Noushmehr H (2015). “TCGAbiolinks: An R/Bioconductor package for integrative analysis of TCGA data.” Nucleic Acids Research. doi:10.1093/nar/gkv1507, http://doi.org/10.1093/nar/gkv1507.
+7. Silva, C T, Colaprico, Antonio, Olsen, Catharina, D'Angelo, Fulvio, Bontempi, Gianluca, Ceccarelli, Michele, Noushmehr, Houtan (2016). “TCGA Workflow: Analyze cancer genomics and epigenomics data using Bioconductor packages.” F1000Research 
+8. Mounir, Mohamed, Lucchetta, Marta, Silva, C T, Olsen, Catharina, Bontempi, Gianluca, Chen, Xi, Noushmehr, Houtan, Colaprico, Antonio, Papaleo, Elena (2019). “New functionalities in the TCGAbiolinks package for the study and integration of cancer data from GDC and GTEx.” PLoS computational biology, 15(3), e1006701.
+9. Wang, Yuting, Meijie Jiang, et al. EasyEWAS: A Flexible and User-Friendly R Package for Epigenome-Wide Association Study, 14 Jan. 2025, https://doi.org/10.1101/2025.01.09.632273. 
+10. Barfield RT, Kilaru V, Smith AK, Conneely KN. CpGassoc: an R function for analysis of DNA methylation microarray data. Bioinformatics. 2012 May 1;28(9):1280-1. doi: 10.1093/bioinformatics/bts124. Epub 2012 Mar 25. PMID: 22451269; PMCID: PMC3577110.
+11. Wickham H (2016). ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York. ISBN 978-3-319-24277-4, https://ggplot2.tidyverse.org.
 
 
