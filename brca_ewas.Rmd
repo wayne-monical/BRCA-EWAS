@@ -28,9 +28,12 @@ BiocManager::install("IlluminaHumanMethylationEPICv2anno.20a1.hg38")
 devtools::install_github("ytwangZero/easyEWAS")
 ```
 
-```{r Libraries, message=FALSE, warning=FALSE}
+```{r, echo=FALSE}
 options(warn=-1)
+```
 
+
+```{r Libraries, message=FALSE, warning=FALSE}
 # data download
 library(TCGAbiolinks)
 library(SummarizedExperiment)
@@ -413,7 +416,8 @@ The univariate analysis confirmed the association between the methylation values
 
 For further study into the relationship between methylation and BRCA cancer tissue, I would delve deeper into sites cg16751493, cg07141215, and cg12277416, employ additional statistical techniques, and incorporate additional data. I would evaluate the surrounding regions of the significant CpG sites, potentially discovering more significant sites. I would evaluate the interaction between CpG sites for association with case/control status. Since cancerous tissue is known to have varied methylation values4, I would incorporate each site's methylation variability as a feature for testing and model-building. I would conduct bump hunting and other techniques for the discovery of differentially methylated regions. For biological data, I would incorporate genetic data, gene expression data, and clinical data, such as age, treatment regimen, and lifestyle in order to create a full picture of the relationship between methylation and tissue type and account for confounding variables. 
 
-References
+# References
+
 1. Lingle, W., Erickson, B. J., Zuley, M. L., Jarosz, R., Bonaccio, E., Filippini, J., Net, J. M., Levi, L., Morris, E. A., Figler, G. G., Elnajjar, P., Kirk, S., Lee, Y., Giger, M., & Gruszauskas, N. (2016). The Cancer Genome Atlas Breast Invasive Carcinoma Collection (TCGA-BRCA). The Cancer Imaging Archive. https://doi.org/10.7937/K9/TCIA.2016.AB2NAZRP
 2. “Introduction to DNA Methylation Analysis¶.” Introduction to DNA Methylation Analysis - Methylprep 1.6.5 Documentation, life-epigenetics-methylprep.readthedocs-hosted.com/en/latest/docs/introduction/introduction.html. Accessed 2 May 2025. 
 3. Du, Pan, et al. “Comparison of beta-value and m-value methods for quantifying methylation levels by microarray analysis.” BMC Bioinformatics, vol. 11, no. 1, 30 Nov. 2010, https://doi.org/10.1186/1471-2105-11-587. 
