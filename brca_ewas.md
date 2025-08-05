@@ -1,9 +1,7 @@
 Epigenome-Wide BRCA Analysis
 ================
-Wayne Monical
-2025-04-21
 
-# Introduction
+## Introduction
 
 In this project, I explore the relationship between CpG site methylation
 and status as a tumor or a normal-adjacent tissue from the TCGA-BRCA
@@ -46,7 +44,7 @@ case/control status. The univariate analysis found twenty-four sites to
 be significant, and the logistic regression model found ten sites to be
 significant, three of which overlapped with the univariate analysis.
 
-# Data Preparation
+## Data Preparation
 
 Data was downloaded from the National Cancer Institute via the
 TCGABiolinks R package. 10,000 CpG sites across the epigenome were
@@ -74,7 +72,7 @@ library(caret)
 library(pROC)
 ```
 
-## Downloading Data
+### Downloading Data
 
 ``` r
 query_met <- GDCquery(
@@ -101,7 +99,7 @@ GDCdownload(query_met, files.per.chunk = 1)
 GDCprepare(query_met, save = TRUE, save.filename = "TCGA_BRCA_Methylation_4.1.RData")
 ```
 
-## Data Processing
+### Data Processing
 
 ``` r
 # load downloaded data
@@ -145,7 +143,7 @@ clinical |>
   write.csv(file = 'TCGA_BRCA_clinical_data.csv', row.names = TRUE)
 ```
 
-## Loading Data
+### Loading Data
 
 ``` r
 clinical = read.csv('../final_project_v4.1/TCGA_BRCA_clinical_data.csv', row.names = 1)
@@ -165,11 +163,11 @@ methylation_wide =
   as.data.frame()
 ```
 
-# Analysis
+## Analysis
 
-## EDA
+### EDA
 
-### Number of Samples
+#### Number of Samples
 
 ``` r
 nrow(clinical)
@@ -177,7 +175,7 @@ nrow(clinical)
 
     ## [1] 895
 
-### Cases and Controls
+#### Cases and Controls
 
 ``` r
 table(clinical$tissue_type)
@@ -187,7 +185,7 @@ table(clinical$tissue_type)
     ## Normal  Tumor 
     ##     97    798
 
-### Number of Unique Patients
+#### Number of Unique Patients
 
 ``` r
 length(unique(clinical$patient))
@@ -223,7 +221,7 @@ methylation_wide |>
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
 
-### Histograms of Site Variances by Tissue Type
+#### Histograms of Site Variances by Tissue Type
 
 ``` r
 methylation_wide |> 
@@ -243,7 +241,7 @@ methylation_wide |>
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-7-1.png)<!-- -->
 
-### CpG Site Correlation
+#### CpG Site Correlation
 
 ``` r
 hist(
@@ -254,7 +252,7 @@ hist(
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
-## Univariate Analysis
+### Univariate Analysis
 
 In the univariate analysis, each CpG site was tested independently. I
 conducted a two-sided t-test for association with methylation using the
@@ -267,7 +265,7 @@ case/control status after genomic control. After Bonferroni correction,
 twenty-four sites were found to be significant at the 5% level. The five
 most significant CpG sites are given below.
 
-### Association Tests
+#### Association Tests
 
 ``` r
 methylation_univariate = 
@@ -281,7 +279,7 @@ plot(methylation_univariate)
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
 
-### Permutation Tests
+#### Permutation Tests
 
 ``` r
 methylation_perm = 
@@ -296,7 +294,7 @@ plot(methylation_perm, gc.p.val = TRUE)
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
 
-### Adjustment for Multiple Testing
+#### Adjustment for Multiple Testing
 
 ``` r
 p_vals_univariate = methylation_univariate$results$gc.p.value
@@ -306,7 +304,7 @@ plot(-log(p_vals_univariate_adj))
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
 
-### Number of Significant Sites after Adjustment
+#### Number of Significant Sites after Adjustment
 
 ``` r
 sum(p_vals_univariate_adj < 0.05)
@@ -314,7 +312,7 @@ sum(p_vals_univariate_adj < 0.05)
 
     ## [1] 24
 
-### Most Significant Sites
+#### Most Significant Sites
 
 ``` r
 significant_univariate = 
@@ -337,7 +335,7 @@ significant_univariate %>%
 | cg13802506 |       0 |      1e-07 |          0.0008371 |
 | cg03419151 |       0 |      2e-07 |          0.0015311 |
 
-## PCA Analysis
+### PCA Analysis
 
 In order to reduce the dimensionality of the CpG site data for
 visualization and further analysis, I conducted principle component
@@ -377,7 +375,7 @@ screeplot(methylation_pca, type="lines", main = 'Screeplot of Methylation PCA')
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
 
-### Plotting PC’s
+#### Plotting PC’s
 
 ``` r
 library(patchwork)
@@ -404,7 +402,7 @@ p1 + p2 + p3
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-15-1.png)<!-- -->
 
-## Logistic Regression
+### Logistic Regression
 
 In order to find the strongest CpG site predictors, I trained a
 penalized logistic regression model on the methylation data with the
@@ -429,7 +427,7 @@ based solely on the coefficients listed. This metric, along with the
 calculated p-value of 2.448e-9 indicates a strong relationship between
 this set of CpG sites and case/control status.
 
-### Model Training
+#### Model Training
 
 ``` r
 # scale data
@@ -475,7 +473,7 @@ coeffs_non_zero = (row.names(coeffs)[coeffs[,'s1'] > 0])
 coeffs_non_zero = coeffs_non_zero[2:length(coeffs_non_zero)] # drop intercept
 ```
 
-### Coefficients
+#### Coefficients
 
 ``` r
 coef_vals = 
@@ -498,7 +496,7 @@ coef_vals
     ## 8 cg21777166 0.06477381
     ## 9 cg23740491 0.25507565
 
-### Evaluateing Pairwise Correlation Between Non-zero Coefficients
+#### Evaluateing Pairwise Correlation Between Non-zero Coefficients
 
 ``` r
 methylation_ml |> 
@@ -509,7 +507,7 @@ methylation_ml |>
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->
 
-### Confusion Matrix
+#### Confusion Matrix
 
 ``` r
 # make predictions with best model
@@ -550,7 +548,7 @@ confusionMatrix(
     ##        'Positive' Class : Normal          
     ## 
 
-### Model Training
+#### Model Training
 
 ``` r
 plot(methylation.elastic_net)
@@ -558,7 +556,7 @@ plot(methylation.elastic_net)
 
 ![](brca_ewas_files/figure-gfm/unnamed-chunk-20-1.png)<!-- -->
 
-### Coefficients Versus Penalty
+#### Coefficients Versus Penalty
 
 ``` r
 plot(methylation.elastic_net$finalModel, main = 'Logistic Regression Coefficients vs Penalty')
@@ -574,7 +572,7 @@ intersect(significant_univariate$CPG.Labels, coeffs_non_zero)
 
     ## [1] "cg16751493" "cg07141215" "cg12277416"
 
-# Conclusion
+## Conclusion
 
 The univariate analysis confirmed the association between the
 methylation values and case/control status. The clustering of the
@@ -610,7 +608,7 @@ as age, treatment regimen, and lifestyle in order to create a full
 picture of the relationship between methylation and tissue type and
 account for confounding variables.
 
-# References
+## References
 
 1.  Lingle, W., Erickson, B. J., Zuley, M. L., Jarosz, R., Bonaccio, E.,
     Filippini, J., Net, J. M., Levi, L., Morris, E. A., Figler, G. G.,
